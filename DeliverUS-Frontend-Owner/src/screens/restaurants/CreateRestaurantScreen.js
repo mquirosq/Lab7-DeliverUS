@@ -1,22 +1,38 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useContext } from 'react'
 import { Image, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import * as ExpoImagePicker from 'expo-image-picker'
 import { MaterialCommunityIcons } from '@expo/vector-icons'
 
 import DropDownPicker from 'react-native-dropdown-picker'
-import { getRestaurantCategories } from '../../api/RestaurantEndpoints'
+import { getRestaurantCategories, create } from '../../api/RestaurantEndpoints'
 import InputItem from '../../components/InputItem'
 import TextRegular from '../../components/TextRegular'
 import * as GlobalStyles from '../../styles/GlobalStyles'
 import restaurantLogo from '../../../assets/restaurantLogo.jpeg'
 import restaurantBackground from '../../../assets/restaurantBackground.jpeg'
 import { showMessage } from 'react-native-flash-message'
-import { Formik } from 'formik'
+import { ErrorMessage, Formik } from 'formik'
+import * as yup from 'yup'
+import TextError from '../../components/TextError'
+import { AuthorizationContext } from '../../context/AuthorizationContext'
 
-export default function CreateRestaurantScreen () {
+export default function CreateRestaurantScreen ({ navigation, route }) {
   const initialRestaurantValues = { name: null, description: null, address: null, postalCode: null, url: null, shippingCosts: null, email: null, phone: null, restaurantCategoryId: null }
   const [open, setOpen] = useState(false)
   const [restaurantCategories, setRestaurantCategories] = useState([])
+  const { loggedInUser } = useContext(AuthorizationContext)
+
+  const validationSchema = yup.object().shape({
+    name: yup.string().max(255, 'Name too long').required('Name is required'),
+    address: yup.string().max(255, 'Address too long').required('Address is required'),
+    postalCode: yup.string().max(255, 'Postal code too long').required('Postal code is required'),
+    url: yup.string().nullable(),
+    shippingCosts: yup.number().positive('Shipping costs must be positive').required('Shipping costs is required'),
+    email: yup.string().email('Invalid email').nullable().email('Invalid email'),
+    phone: yup.string().nullable().max(255, 'Phone too long'),
+    restaurantCategoryId: yup.number().positive().integer().required('Restaurant category is required')
+  })
+  const [backendErrors, setBackendErrors] = useState()
 
   useEffect(() => {
     async function fetchRestaurantCategories () {
@@ -39,7 +55,7 @@ export default function CreateRestaurantScreen () {
       }
     }
     fetchRestaurantCategories()
-  }, [])
+  }, [loggedInUser, route])
 
   useEffect(() => {
     (async () => {
@@ -51,6 +67,23 @@ export default function CreateRestaurantScreen () {
       }
     })()
   }, [])
+
+  const createRestaurant = async (values) => {
+    setBackendErrors([])
+    try {
+      const createdRestaurant = await create(values)
+      showMessage({
+        message: `Restaurant ${createdRestaurant.name} created successfully`,
+        type: 'success',
+        style: GlobalStyles.flashStyle,
+        titleStyle: GlobalStyles.flashTextStyle
+      })
+      navigation.navigate('RestaurantsScreen', { dirty: true })
+    } catch (error) {
+      console.log(error)
+      setBackendErrors(error.errors)
+    }
+  }
 
   const pickImage = async (onSuccess) => {
     const result = await ExpoImagePicker.launchImageLibraryAsync({
@@ -69,8 +102,9 @@ export default function CreateRestaurantScreen () {
   return (
     <Formik
     initialValues={initialRestaurantValues}
-    >
-      {({ setFieldValue, values }) => (
+    validationSchema={validationSchema}
+    onSubmit={createRestaurant}>
+      {({ handleSubmit, setFieldValue, values }) => (
         <ScrollView>
           <View style={{ alignItems: 'center' }}>
             <View style={{ width: '60%' }}>
@@ -121,6 +155,7 @@ export default function CreateRestaurantScreen () {
                 style={{ backgroundColor: GlobalStyles.brandBackground }}
                 dropDownStyle={{ backgroundColor: '#fafafa' }}
               />
+              <ErrorMessage name={'restaurantCategoryId'} render={msg => <TextError>{msg}</TextError> }/>
 
               <Pressable onPress={() =>
                 pickImage(
@@ -148,8 +183,12 @@ export default function CreateRestaurantScreen () {
                 <Image style={styles.image} source={values.heroImage ? { uri: values.heroImage.assets[0].uri } : restaurantBackground} />
               </Pressable>
 
+              {backendErrors &&
+                backendErrors.map((error, index) => <TextError key={index}>{error.msg}</TextError>)
+              }
+
               <Pressable
-                onPress={() => console.log('Submit pressed')}
+                onPress={handleSubmit}
                 style={({ pressed }) => [
                   {
                     backgroundColor: pressed
